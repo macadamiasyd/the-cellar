@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+:root {
+  --wine: #6B1A2A;
+  --wine-light: #8B2A3E;
+  --wine-pale: #C97080;
+  --cream: #F5F0E8;
+  --parchment: #EDE6D6;
+  --gold: #B8933A;
+  --ink: #1A1209;
+  --border: #D4C9B0;
+  --muted: #7A7060;
+}
+
+@theme inline {
+  --color-wine: var(--wine);
+  --color-wine-light: var(--wine-light);
+  --color-wine-pale: var(--wine-pale);
+  --color-cream: var(--cream);
+  --color-parchment: var(--parchment);
+  --color-gold: var(--gold);
+  --color-ink: var(--ink);
+  --color-border: var(--border);
+  --color-muted: var(--muted);
+}
+
+body {
+  background-color: var(--cream);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.drink-now  { color: var(--wine); font-weight: 600; }
+.drink-soon { color: #B45309; }
+.drink-cell { color: var(--muted); }
+.drink-past { color: var(--muted); text-decoration: line-through; }
+
+.star-filled { color: var(--gold); }
+.star-empty  { color: var(--border); }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--parchment); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
