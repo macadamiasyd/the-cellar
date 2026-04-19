@@ -6,6 +6,7 @@ import type { Wine } from '@/lib/types'
 import { getDrinkStatus } from '@/lib/types'
 import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
+import WineImage from './WineImage'
 
 type SortKey = 'vintage' | 'producer' | 'grape' | 'region' | 'rating' | 'drink_by' | 'price' | 'quantity'
 
@@ -151,6 +152,7 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
           <table className="w-full text-sm">
             <thead>
               <tr style={{ background: 'var(--wine)', color: 'var(--cream)' }}>
+                <th className="px-2 py-2 w-14 hidden sm:table-cell" />
                 {[
                   { col: 'vintage' as SortKey, label: 'Vintage' },
                   { col: 'producer' as SortKey, label: 'Producer' },
@@ -178,6 +180,9 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
                   onMouseEnter={e => (e.currentTarget.style.background = '#e8dfc8')}
                   onMouseLeave={e => (e.currentTarget.style.background = i % 2 === 0 ? 'var(--cream)' : 'var(--parchment)')}
                 >
+                  <td className="px-2 py-1 hidden sm:table-cell">
+                    <WineImage src={wine.label_image_url} alt={wine.producer} wineType={wine.type} width={36} height={48} className="rounded" />
+                  </td>
                   <td className="px-3 py-2 font-mono font-medium" style={{ color: 'var(--wine)' }}>{wine.vintage}</td>
                   <td className="px-3 py-2 font-medium">{wine.producer}</td>
                   <td className="px-3 py-2" style={{ color: 'var(--muted)' }}>{wine.name}</td>

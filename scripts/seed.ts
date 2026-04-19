@@ -1,3 +1,6 @@
+import { config } from 'dotenv'
+config({ path: '.env.local' })
+
 import { createClient } from '@supabase/supabase-js'
 import { parse } from 'csv-parse/sync'
 import { readFileSync } from 'fs'
@@ -26,7 +29,7 @@ function toStr(val: string | undefined): string | null {
 }
 
 async function seed() {
-  const csvPath = join(__dirname, '../../WineData.csv')
+  const csvPath = join(__dirname, '../WineData.csv')
   let raw: string
   try {
     raw = readFileSync(csvPath, 'utf-8')

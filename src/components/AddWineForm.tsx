@@ -3,6 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import LabelScanner from './LabelScanner'
+import ImageUpload from './ImageUpload'
+import WineImage from './WineImage'
 
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
 
@@ -46,6 +48,8 @@ export default function AddWineForm() {
   const [looking, setLooking] = useState(false)
   const [saving, setSaving] = useState(false)
   const [aiConfidence, setAiConfidence] = useState<string | null>(null)
+  const [savedId, setSavedId] = useState<string | null>(null)
+  const [pendingImage, setPendingImage] = useState<{ url: string; source: string } | null>(null)
   const [error, setError] = useState('')
 
   function set(k: keyof WineFields, v: string) {
@@ -145,6 +149,14 @@ export default function AddWineForm() {
     setSaving(false)
     if (res.ok) {
       const wine = await res.json()
+      // If there's a pending image from a pre-upload, upload it now
+      if (pendingImage) {
+        await fetch('/api/wines/' + wine.id, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ label_image_url: pendingImage.url, image_source: pendingImage.source }),
+        })
+      }
       router.push(`/wine/${wine.id}`)
     } else {
       setError('Failed to save wine.')
@@ -307,6 +319,45 @@ export default function AddWineForm() {
               <input value={fields.purchase_location} onChange={e => set('purchase_location', e.target.value)} className={inp} style={inpStyle} />
             </div>
           </div>
+        </div>
+
+        {/* Optional image upload before save */}
+        <div className="rounded-xl p-4" style={{ background: 'var(--parchment)', border: '1px solid var(--border)' }}>
+          <p className="text-xs font-semibold uppercase tracking-wide mb-3" style={{ color: 'var(--muted)' }}>Wine Photo (optional)</p>
+          {pendingImage ? (
+            <div className="flex items-center gap-3">
+              <WineImage src={pendingImage.url} alt="Wine" wineType={fields.type} width={60} height={80} className="rounded" />
+              <div>
+                <p className="text-sm font-medium">Photo ready</p>
+                <button type="button" onClick={() => setPendingImage(null)} className="text-xs underline" style={{ color: 'var(--muted)' }}>Remove</button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className="border-2 border-dashed rounded-lg p-4 text-center text-sm cursor-pointer"
+              style={{ borderColor: 'var(--border)', color: 'var(--muted)' }}
+              onClick={() => document.getElementById('add-wine-img')?.click()}
+            >
+              📷 Upload a photo (JPEG/PNG/WebP, max 5MB)
+              <input
+                id="add-wine-img"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                capture="environment"
+                className="hidden"
+                onChange={async e => {
+                  const file = e.target.files?.[0]
+                  if (!file) return
+                  const reader = new FileReader()
+                  reader.onload = ev => {
+                    const url = ev.target?.result as string
+                    setPendingImage({ url, source: 'upload' })
+                  }
+                  reader.readAsDataURL(file)
+                }}
+              />
+            </div>
+          )}
         </div>
 
         <button type="submit" disabled={saving} className="w-full py-3 rounded-xl font-semibold text-base"

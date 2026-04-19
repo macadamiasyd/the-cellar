@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import type { Wine } from '@/lib/types'
 import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
+import ImageUpload from './ImageUpload'
 
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
 
@@ -57,6 +58,7 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
   const [saving, setSaving] = useState(false)
   const [enriching, setEnriching] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [findingImage, setFindingImage] = useState(false)
   const [error, setError] = useState('')
 
   function set(field: keyof Wine, value: unknown) {
@@ -111,6 +113,24 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
       setError('AI enrichment failed.')
     }
     setEnriching(false)
+  }
+
+  async function findImage() {
+    setFindingImage(true)
+    setError('')
+    const res = await fetch('/api/images/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ producer: wine.producer, name: wine.name, vintage: wine.vintage, wine_id: wine.id }),
+    })
+    setFindingImage(false)
+    if (res.ok) {
+      const data = await res.json()
+      if (data.url) setWine(w => ({ ...w, label_image_url: data.url, image_source: 'auto' }))
+      else setError('No image found. Try uploading one manually.')
+    } else {
+      setError('Image search failed.')
+    }
   }
 
   async function deleteWine() {
@@ -182,12 +202,26 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
         </div>
       </div>
 
-      {/* Label image */}
-      {wine.label_image_url && (
-        <div className="mb-6">
-          <img src={wine.label_image_url} alt="Wine label" className="h-48 object-contain rounded-lg shadow-md" />
-        </div>
-      )}
+      {/* Image section */}
+      <div className="mb-6 flex flex-wrap items-end gap-4">
+        <ImageUpload
+          wineId={wine.id}
+          currentUrl={wine.label_image_url}
+          currentSource={wine.image_source}
+          wineType={wine.type}
+          onUploaded={url => setWine(w => ({ ...w, label_image_url: url, image_source: 'upload' as const }))}
+        />
+        {!wine.label_image_url && (
+          <button
+            onClick={findImage}
+            disabled={findingImage}
+            className="px-3 py-2 rounded-lg text-sm font-medium flex items-center gap-2 transition-opacity disabled:opacity-50"
+            style={{ background: 'var(--parchment)', border: '1px solid var(--border)', color: 'var(--ink)' }}
+          >
+            🔍 {findingImage ? 'Searching…' : 'Find Image'}
+          </button>
+        )}
+      </div>
 
       {error && <p className="mb-4 text-sm px-3 py-2 rounded" style={{ background: '#fee2e2', color: '#991b1b' }}>{error}</p>}
 

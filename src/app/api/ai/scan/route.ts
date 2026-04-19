@@ -58,9 +58,9 @@ export async function POST(req: NextRequest) {
     })
     if (enrichRes.ok) {
       const enriched = await enrichRes.json()
-      return NextResponse.json({ ...enriched, ...extracted })
+      return NextResponse.json({ ...enriched, ...extracted, image_source: 'scan' })
     }
   }
 
-  return NextResponse.json(extracted)
+  return NextResponse.json({ ...extracted, image_source: 'scan' })
 }

@@ -23,6 +23,7 @@ export interface Wine {
   price: number | null
   currency: string
   label_image_url: string | null
+  image_source: 'scan' | 'upload' | 'auto' | null
   ai_enriched: boolean
   is_wishlist: boolean
   created_at: string
