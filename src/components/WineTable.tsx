@@ -17,6 +17,16 @@ interface Props {
 
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
 const DRINK_WINDOWS = ['now', 'soon', 'cellaring', 'past']
+const STORAGE_OPTIONS = ['Refrigerator', 'Home', 'Storage']
+
+function normalizeStorage(s: string | null | undefined): string {
+  if (!s) return ''
+  const l = s.toLowerCase()
+  if (l.includes('refrig') || l.includes('refigerator')) return 'Refrigerator'
+  if (l.includes('home')) return 'Home'
+  if (l.includes('storage')) return 'Storage'
+  return s.replace(/\s*x\s*\d+/gi, '').trim()
+}
 
 export default function WineTable({ wines, isWishlist = false }: Props) {
   const router = useRouter()
@@ -34,7 +44,6 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
 
   const countries = useMemo(() => [...new Set(wines.map(w => w.country).filter(Boolean))].sort() as string[], [wines])
   const regions = useMemo(() => [...new Set(wines.map(w => w.region).filter(Boolean))].sort() as string[], [wines])
-  const storages = useMemo(() => [...new Set(wines.map(w => w.storage_location).filter(Boolean))].sort() as string[], [wines])
 
   const filtered = useMemo(() => {
     let list = wines
@@ -51,7 +60,7 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
     if (grapeFilter) list = list.filter(w => w.grape?.toLowerCase().includes(grapeFilter.toLowerCase()))
     if (ratingFilter) list = list.filter(w => w.rating === parseInt(ratingFilter))
     if (windowFilter) list = list.filter(w => getDrinkStatus(w) === windowFilter)
-    if (storageFilter) list = list.filter(w => w.storage_location === storageFilter)
+    if (storageFilter) list = list.filter(w => normalizeStorage(w.storage_location) === storageFilter)
 
     return [...list].sort((a, b) => {
       const av = a[sortKey] ?? (typeof a[sortKey] === 'number' ? -Infinity : '')
@@ -112,7 +121,7 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
                 { val: regionFilter, set: setRegionFilter, opts: regions, label: 'Region' },
                 { val: ratingFilter, set: setRatingFilter, opts: ['5','4','3','2','1'], label: 'Rating' },
                 { val: windowFilter, set: setWindowFilter, opts: DRINK_WINDOWS, label: 'Window' },
-                { val: storageFilter, set: setStorageFilter, opts: storages, label: 'Storage' },
+                { val: storageFilter, set: setStorageFilter, opts: STORAGE_OPTIONS, label: 'Storage' },
               ].map(f => (
                 <select
                   key={f.label}
