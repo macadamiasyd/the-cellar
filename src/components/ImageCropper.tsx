@@ -1,15 +1,8 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import Cropper from 'react-easy-crop'
+import Cropper, { type Area } from 'react-easy-crop'
 import { getCroppedImage } from '@/lib/cropImage'
-
-interface Area {
-  x: number
-  y: number
-  width: number
-  height: number
-}
 
 interface Props {
   imageSrc: string
@@ -24,6 +17,7 @@ export default function ImageCropper({ imageSrc, originalFile, onCropped, onSkip
   const [zoom, setZoom] = useState(1)
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
   const [processing, setProcessing] = useState(false)
+  const [error, setError] = useState('')
 
   const onCropComplete = useCallback((_: Area, pixels: Area) => {
     setCroppedAreaPixels(pixels)
@@ -32,9 +26,12 @@ export default function ImageCropper({ imageSrc, originalFile, onCropped, onSkip
   async function handleCropAndUpload() {
     if (!croppedAreaPixels) return
     setProcessing(true)
+    setError('')
     try {
       const blob = await getCroppedImage(imageSrc, croppedAreaPixels)
       onCropped(blob, originalFile.name.replace(/\.[^.]+$/, '.jpg'))
+    } catch {
+      setError('Could not process image. Try again.')
     } finally {
       setProcessing(false)
     }
@@ -73,6 +70,11 @@ export default function ImageCropper({ imageSrc, originalFile, onCropped, onSkip
         />
       </div>
 
+      {error && (
+        <div className="px-4 pt-2" style={{ background: 'rgba(0,0,0,0.8)' }}>
+          <p className="text-xs" style={{ color: '#fca5a5' }}>{error}</p>
+        </div>
+      )}
       <div className="flex gap-3 px-4 pb-6 pt-2" style={{ background: 'rgba(0,0,0,0.8)' }}>
         <button
           type="button"

@@ -25,13 +25,18 @@ export default function ImageUpload({ wineId, currentUrl, currentSource, wineTyp
     const form = new FormData()
     form.append('wine_id', wineId)
     form.append('file', blob, filename)
-    const res = await fetch('/api/images/upload', { method: 'POST', body: form })
-    setUploading(false)
-    if (res.ok) {
-      const { url } = await res.json()
-      onUploaded(url)
-    } else {
-      setError('Upload failed. Try again.')
+    try {
+      const res = await fetch('/api/images/upload', { method: 'POST', body: form })
+      if (res.ok) {
+        const { url } = await res.json()
+        onUploaded(url)
+      } else {
+        setError('Upload failed. Try again.')
+      }
+    } catch {
+      setError('Network error. Check your connection and try again.')
+    } finally {
+      setUploading(false)
     }
   }
 

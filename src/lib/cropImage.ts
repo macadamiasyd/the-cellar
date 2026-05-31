@@ -1,9 +1,4 @@
-interface Area {
-  x: number
-  y: number
-  width: number
-  height: number
-}
+import type { Area } from 'react-easy-crop'
 
 function createImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
