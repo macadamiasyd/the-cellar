@@ -178,8 +178,8 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
   }
 
   async function handleLastBottle(action: 'wishlist' | 'keep' | 'remove') {
-    setLastBottleModalOpen(false)
     if (action === 'wishlist') {
+      setLastBottleModalOpen(false)
       const res = await fetch(`/api/wines/${wine.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -189,11 +189,14 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
       else setError('Failed to add to wishlist.')
     } else if (action === 'remove') {
       if (!confirm('Delete this wine? This cannot be undone.')) return
+      setLastBottleModalOpen(false)
       const res = await fetch(`/api/wines/${wine.id}`, { method: 'DELETE' })
       if (res.ok) router.push('/')
       else setError('Delete failed.')
+    } else {
+      // 'keep' — nothing to do, qty is already 0
+      setLastBottleModalOpen(false)
     }
-    // 'keep' — nothing to do, qty is already 0
   }
 
   async function moveToCellar() {

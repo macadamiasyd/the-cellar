@@ -8,6 +8,7 @@ import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
 import WineImage from './WineImage'
 import DrinkModal from './DrinkModal'
+import LastBottleModal from './LastBottleModal'
 
 type SortKey = 'vintage' | 'producer' | 'name' | 'grape' | 'region' | 'rating' | 'drink_by' | 'price' | 'quantity'
 
@@ -47,6 +48,7 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialParams.order === 'asc' ? 'asc' : 'desc')
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [drinkingWine, setDrinkingWine] = useState<Wine | null>(null)
+  const [lastBottleWine, setLastBottleWine] = useState<Wine | null>(null)
 
   const updateUrl = useCallback((patch: Record<string, string>) => {
     const p = new URLSearchParams()
@@ -115,11 +117,37 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
     if (tastingNote) {
       body.tasting_notes = `${wine.tasting_notes ? wine.tasting_notes + '\n\n' : ''}---[${today}] ${tastingNote}`
     }
-    await fetch(`/api/wines/${wine.id}`, {
+    const res = await fetch(`/api/wines/${wine.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+    if (!res.ok) {
+      alert('Failed to record drink. Please try again.')
+      return
+    }
+    if (newQty === 0) {
+      setLastBottleWine({ ...wine, quantity: 0 })
+    } else {
+      router.refresh()
+    }
+  }
+
+  async function handleTableLastBottle(wine: Wine, action: 'wishlist' | 'keep' | 'remove') {
+    if (action === 'wishlist') {
+      const res = await fetch(`/api/wines/${wine.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_wishlist: true }),
+      })
+      if (!res.ok) { alert('Failed to add to wishlist.'); return }
+    } else if (action === 'remove') {
+      if (!confirm('Delete this wine? This cannot be undone.')) return
+      const res = await fetch(`/api/wines/${wine.id}`, { method: 'DELETE' })
+      if (!res.ok) { alert('Delete failed.'); return }
+    }
+    // 'keep' — quantity is already 0; it will drop out of the main list (qty > 0 filter)
+    setLastBottleWine(null)
     router.refresh()
   }
 
@@ -275,7 +303,7 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={10} className="px-3 py-12 text-center" style={{ color: 'var(--muted)' }}>No wines match your filters.</td></tr>
+                <tr><td colSpan={11} className="px-3 py-12 text-center" style={{ color: 'var(--muted)' }}>No wines match your filters.</td></tr>
               )}
             </tbody>
           </table>
@@ -314,6 +342,14 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
           wine={drinkingWine}
           onConfirm={(note) => handleTableDrink(drinkingWine, note)}
           onCancel={() => setDrinkingWine(null)}
+        />
+      )}
+      {lastBottleWine && (
+        <LastBottleModal
+          wineName={`${lastBottleWine.vintage} ${lastBottleWine.producer}${lastBottleWine.name ? ' ' + lastBottleWine.name : ''}`}
+          onAddToWishlist={() => handleTableLastBottle(lastBottleWine, 'wishlist')}
+          onKeepInCellar={() => handleTableLastBottle(lastBottleWine, 'keep')}
+          onRemove={() => handleTableLastBottle(lastBottleWine, 'remove')}
         />
       )}
     </div>
