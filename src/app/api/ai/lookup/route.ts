@@ -44,22 +44,40 @@ export async function POST(req: NextRequest) {
 
   const wineDesc = [vintage, producer, name].filter(Boolean).join(' ')
 
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
-    tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: wineDesc }],
-  })
+  const MAX_CONTINUATIONS = 5
+  let message: Anthropic.Message
+  try {
+    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: wineDesc }]
+    let i = 0
+    do {
+      message = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2048,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        system: SYSTEM_PROMPT,
+        messages,
+      })
+      if (message.stop_reason === 'pause_turn') {
+        messages.push({ role: 'assistant', content: message.content })
+      }
+      i++
+    } while (message.stop_reason === 'pause_turn' && i < MAX_CONTINUATIONS)
+  } catch (err) {
+    console.error('AI lookup request failed:', err)
+    return NextResponse.json({ error: 'AI service unavailable. Please try again.' }, { status: 502 })
+  }
 
-  // After tool use, the final text block holds the JSON. Find the last text block.
+  // After tool use, the final JSON answer is in the last text block.
   const textBlocks = message.content.filter(b => b.type === 'text')
   const text = textBlocks.length ? (textBlocks[textBlocks.length - 1] as { text: string }).text : ''
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) return NextResponse.json({ error: 'Invalid AI response' }, { status: 500 })
+  const start = text.lastIndexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start === -1 || end <= start) {
+    return NextResponse.json({ error: 'Invalid AI response' }, { status: 500 })
+  }
 
   try {
-    const result = JSON.parse(jsonMatch[0])
+    const result = JSON.parse(text.slice(start, end + 1))
     return NextResponse.json(result)
   } catch {
     return NextResponse.json({ error: 'Failed to parse AI response' }, { status: 500 })
