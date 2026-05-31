@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Wine } from '@/lib/types'
 import { getDrinkStatus } from '@/lib/types'
@@ -8,11 +8,12 @@ import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
 import WineImage from './WineImage'
 
-type SortKey = 'vintage' | 'producer' | 'grape' | 'region' | 'rating' | 'drink_by' | 'price' | 'quantity'
+type SortKey = 'vintage' | 'producer' | 'name' | 'grape' | 'region' | 'rating' | 'drink_by' | 'price' | 'quantity'
 
 interface Props {
   wines: Wine[]
   isWishlist?: boolean
+  initialParams?: Record<string, string>
 }
 
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
@@ -28,19 +29,41 @@ function normalizeStorage(s: string | null | undefined): string {
   return s.replace(/\s*x\s*\d+/gi, '').trim()
 }
 
-export default function WineTable({ wines, isWishlist = false }: Props) {
+export default function WineTable({ wines, isWishlist = false, initialParams = {} }: Props) {
   const router = useRouter()
-  const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
-  const [countryFilter, setCountryFilter] = useState('')
-  const [regionFilter, setRegionFilter] = useState('')
-  const [grapeFilter, setGrapeFilter] = useState('')
-  const [ratingFilter, setRatingFilter] = useState('')
-  const [windowFilter, setWindowFilter] = useState('')
-  const [storageFilter, setStorageFilter] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('vintage')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [search, setSearchState] = useState(initialParams.search ?? '')
+  const [typeFilter, setTypeFilter] = useState(initialParams.type ?? '')
+  const [countryFilter, setCountryFilter] = useState(initialParams.country ?? '')
+  const [regionFilter, setRegionFilter] = useState(initialParams.region ?? '')
+  const [grapeFilter, setGrapeFilter] = useState(initialParams.grape ?? '')
+  const [ratingFilter, setRatingFilter] = useState(initialParams.rating ?? '')
+  const [windowFilter, setWindowFilter] = useState(initialParams.window ?? '')
+  const [storageFilter, setStorageFilter] = useState(initialParams.storage ?? '')
+  const [sortKey, setSortKey] = useState<SortKey>((initialParams.sort as SortKey) ?? 'vintage')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>((initialParams.order as 'asc' | 'desc') ?? 'desc')
   const [filtersOpen, setFiltersOpen] = useState(false)
+
+  const updateUrl = useCallback((patch: Record<string, string>) => {
+    const p = new URLSearchParams()
+    const current: Record<string, string> = {
+      search, type: typeFilter, country: countryFilter, region: regionFilter,
+      grape: grapeFilter, rating: ratingFilter, window: windowFilter,
+      storage: storageFilter, sort: sortKey, order: sortDir,
+    }
+    const merged = { ...current, ...patch }
+    for (const [k, v] of Object.entries(merged)) {
+      if (v && !(k === 'sort' && v === 'vintage') && !(k === 'order' && v === 'desc')) {
+        p.set(k, v)
+      }
+    }
+    const qs = p.toString()
+    router.replace(qs ? `/?${qs}` : '/', { scroll: false })
+  }, [search, typeFilter, countryFilter, regionFilter, grapeFilter, ratingFilter, windowFilter, storageFilter, sortKey, sortDir, router])
+
+  function setSearch(v: string) {
+    setSearchState(v)
+    updateUrl({ search: v })
+  }
 
   const countries = useMemo(() => [...new Set(wines.map(w => w.country).filter(Boolean))].sort() as string[], [wines])
   const regions = useMemo(() => [...new Set(wines.map(w => w.region).filter(Boolean))].sort() as string[], [wines])
@@ -63,6 +86,14 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
     if (storageFilter) list = list.filter(w => normalizeStorage(w.storage_location) === storageFilter)
 
     return [...list].sort((a, b) => {
+      if (sortKey === 'name') {
+        const aEmpty = !a.name?.trim()
+        const bEmpty = !b.name?.trim()
+        if (aEmpty && !bEmpty) return 1
+        if (!aEmpty && bEmpty) return -1
+        if (aEmpty && bEmpty) return 0
+        return a.name!.localeCompare(b.name!) * (sortDir === 'asc' ? 1 : -1)
+      }
       const av = a[sortKey] ?? (typeof a[sortKey] === 'number' ? -Infinity : '')
       const bv = b[sortKey] ?? (typeof b[sortKey] === 'number' ? -Infinity : '')
       if (av < bv) return sortDir === 'asc' ? -1 : 1
@@ -72,8 +103,10 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
   }, [wines, search, typeFilter, countryFilter, regionFilter, grapeFilter, ratingFilter, windowFilter, storageFilter, sortKey, sortDir])
 
   function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('asc') }
+    const newDir = sortKey === key ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc'
+    setSortKey(key)
+    setSortDir(newDir)
+    updateUrl({ sort: key, order: newDir })
   }
 
   function SortBtn({ col, label }: { col: SortKey; label: string }) {
@@ -116,12 +149,12 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
           {filtersOpen && (
             <div className="flex gap-2 flex-wrap mt-2">
               {[
-                { val: typeFilter, set: setTypeFilter, opts: WINE_TYPES, label: 'Type' },
-                { val: countryFilter, set: setCountryFilter, opts: countries, label: 'Country' },
-                { val: regionFilter, set: setRegionFilter, opts: regions, label: 'Region' },
-                { val: ratingFilter, set: setRatingFilter, opts: ['5','4','3','2','1'], label: 'Rating' },
-                { val: windowFilter, set: setWindowFilter, opts: DRINK_WINDOWS, label: 'Window' },
-                { val: storageFilter, set: setStorageFilter, opts: STORAGE_OPTIONS, label: 'Storage' },
+                { val: typeFilter, set: (v: string) => { setTypeFilter(v); updateUrl({ type: v }) }, opts: WINE_TYPES, label: 'Type' },
+                { val: countryFilter, set: (v: string) => { setCountryFilter(v); updateUrl({ country: v }) }, opts: countries, label: 'Country' },
+                { val: regionFilter, set: (v: string) => { setRegionFilter(v); updateUrl({ region: v }) }, opts: regions, label: 'Region' },
+                { val: ratingFilter, set: (v: string) => { setRatingFilter(v); updateUrl({ rating: v }) }, opts: ['5','4','3','2','1'], label: 'Rating' },
+                { val: windowFilter, set: (v: string) => { setWindowFilter(v); updateUrl({ window: v }) }, opts: DRINK_WINDOWS, label: 'Window' },
+                { val: storageFilter, set: (v: string) => { setStorageFilter(v); updateUrl({ storage: v }) }, opts: STORAGE_OPTIONS, label: 'Storage' },
               ].map(f => (
                 <select
                   key={f.label}
@@ -137,13 +170,17 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
               <input
                 placeholder="Grape…"
                 value={grapeFilter}
-                onChange={e => setGrapeFilter(e.target.value)}
+                onChange={e => { setGrapeFilter(e.target.value); updateUrl({ grape: e.target.value }) }}
                 className="px-2 py-1.5 rounded border text-sm w-28"
                 style={{ borderColor: 'var(--border)', background: 'var(--cream)' }}
               />
               {(typeFilter || countryFilter || regionFilter || grapeFilter || ratingFilter || windowFilter || storageFilter) && (
                 <button
-                  onClick={() => { setTypeFilter(''); setCountryFilter(''); setRegionFilter(''); setGrapeFilter(''); setRatingFilter(''); setWindowFilter(''); setStorageFilter('') }}
+                  onClick={() => {
+                    setTypeFilter(''); setCountryFilter(''); setRegionFilter('')
+                    setGrapeFilter(''); setRatingFilter(''); setWindowFilter(''); setStorageFilter('')
+                    router.replace('/', { scroll: false })
+                  }}
                   className="px-2 py-1.5 rounded text-sm underline"
                   style={{ color: 'var(--wine)' }}
                 >
@@ -170,7 +207,7 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
                     <SortBtn col={h.col} label={h.label} />
                   </th>
                 ))}
-                <th className="text-left px-3 py-2 font-semibold">Name</th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="name" label="Name" /></th>
                 <th className="text-left px-3 py-2 font-semibold"><SortBtn col="grape" label="Grape" /></th>
                 <th className="text-left px-3 py-2 font-semibold"><SortBtn col="region" label="Region" /></th>
                 <th className="text-left px-3 py-2 font-semibold"><SortBtn col="rating" label="Rating" /></th>
