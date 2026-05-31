@@ -19,6 +19,7 @@ interface Props {
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
 const DRINK_WINDOWS = ['now', 'soon', 'cellaring', 'past']
 const STORAGE_OPTIONS = ['Refrigerator', 'Home', 'Storage']
+const SORT_KEYS = ['vintage', 'producer', 'name', 'grape', 'region', 'rating', 'drink_by', 'price', 'quantity'] as const
 
 function normalizeStorage(s: string | null | undefined): string {
   if (!s) return ''
@@ -39,8 +40,10 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
   const [ratingFilter, setRatingFilter] = useState(initialParams.rating ?? '')
   const [windowFilter, setWindowFilter] = useState(initialParams.window ?? '')
   const [storageFilter, setStorageFilter] = useState(initialParams.storage ?? '')
-  const [sortKey, setSortKey] = useState<SortKey>((initialParams.sort as SortKey) ?? 'vintage')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>((initialParams.order as 'asc' | 'desc') ?? 'desc')
+  const [sortKey, setSortKey] = useState<SortKey>(
+    (SORT_KEYS as readonly string[]).includes(initialParams.sort ?? '') ? (initialParams.sort as SortKey) : 'vintage'
+  )
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialParams.order === 'asc' ? 'asc' : 'desc')
   const [filtersOpen, setFiltersOpen] = useState(false)
 
   const updateUrl = useCallback((patch: Record<string, string>) => {
@@ -177,8 +180,9 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
               {(typeFilter || countryFilter || regionFilter || grapeFilter || ratingFilter || windowFilter || storageFilter) && (
                 <button
                   onClick={() => {
-                    setTypeFilter(''); setCountryFilter(''); setRegionFilter('')
+                    setSearchState(''); setTypeFilter(''); setCountryFilter(''); setRegionFilter('')
                     setGrapeFilter(''); setRatingFilter(''); setWindowFilter(''); setStorageFilter('')
+                    setSortKey('vintage'); setSortDir('desc')
                     router.replace('/', { scroll: false })
                   }}
                   className="px-2 py-1.5 rounded text-sm underline"
