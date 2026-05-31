@@ -78,6 +78,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = JSON.parse(text.slice(start, end + 1))
+    if (!result || typeof result !== 'object' || !('confidence' in result)) {
+      return NextResponse.json({ error: 'Malformed AI response' }, { status: 500 })
+    }
     return NextResponse.json(result)
   } catch {
     return NextResponse.json({ error: 'Failed to parse AI response' }, { status: 500 })

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import type { Wine } from '@/lib/types'
 import { getDrinkStatus } from '@/lib/types'
 import RatingStars from './RatingStars'
@@ -22,6 +22,22 @@ const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert'
 const DRINK_WINDOWS = ['now', 'soon', 'cellaring', 'past']
 const STORAGE_OPTIONS = ['Refrigerator', 'Home', 'Storage']
 const SORT_KEYS = ['vintage', 'producer', 'name', 'grape', 'region', 'rating', 'drink_by', 'price', 'quantity'] as const
+const NUMERIC_KEYS = new Set<string>(['vintage', 'rating', 'drink_by', 'drink_from', 'price', 'quantity'])
+
+function SortBtn({ col, label, sortKey, sortDir, onToggle }: {
+  col: SortKey
+  label: string
+  sortKey: SortKey
+  sortDir: 'asc' | 'desc'
+  onToggle: (key: SortKey) => void
+}) {
+  return (
+    <button onClick={() => onToggle(col)} className="flex items-center gap-1 hover:opacity-70 transition-opacity">
+      {label}
+      {sortKey === col && <span>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+    </button>
+  )
+}
 
 function normalizeStorage(s: string | null | undefined): string {
   if (!s) return ''
@@ -34,6 +50,7 @@ function normalizeStorage(s: string | null | undefined): string {
 
 export default function WineTable({ wines, isWishlist = false, initialParams = {} }: Props) {
   const router = useRouter()
+  const pathname = usePathname()
   const [search, setSearchState] = useState(initialParams.search ?? '')
   const [typeFilter, setTypeFilter] = useState(initialParams.type ?? '')
   const [countryFilter, setCountryFilter] = useState(initialParams.country ?? '')
@@ -64,8 +81,8 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
       }
     }
     const qs = p.toString()
-    router.replace(qs ? `/?${qs}` : '/', { scroll: false })
-  }, [search, typeFilter, countryFilter, regionFilter, grapeFilter, ratingFilter, windowFilter, storageFilter, sortKey, sortDir, router])
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }, [search, typeFilter, countryFilter, regionFilter, grapeFilter, ratingFilter, windowFilter, storageFilter, sortKey, sortDir, router, pathname])
 
   function setSearch(v: string) {
     setSearchState(v)
@@ -101,8 +118,9 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
         if (aEmpty && bEmpty) return 0
         return a.name!.localeCompare(b.name!) * (sortDir === 'asc' ? 1 : -1)
       }
-      const av = a[sortKey] ?? (typeof a[sortKey] === 'number' ? -Infinity : '')
-      const bv = b[sortKey] ?? (typeof b[sortKey] === 'number' ? -Infinity : '')
+      const fallback = NUMERIC_KEYS.has(sortKey) ? -Infinity : ''
+      const av = a[sortKey] ?? fallback
+      const bv = b[sortKey] ?? fallback
       if (av < bv) return sortDir === 'asc' ? -1 : 1
       if (av > bv) return sortDir === 'asc' ? 1 : -1
       return 0
@@ -156,15 +174,6 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
     setSortKey(key)
     setSortDir(newDir)
     updateUrl({ sort: key, order: newDir })
-  }
-
-  function SortBtn({ col, label }: { col: SortKey; label: string }) {
-    return (
-      <button onClick={() => toggleSort(col)} className="flex items-center gap-1 hover:opacity-70 transition-opacity">
-        {label}
-        {sortKey === col && <span>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-      </button>
-    )
   }
 
   const totalBottles = filtered.reduce((s, w) => s + w.quantity, 0)
@@ -229,7 +238,7 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
                     setSearchState(''); setTypeFilter(''); setCountryFilter(''); setRegionFilter('')
                     setGrapeFilter(''); setRatingFilter(''); setWindowFilter(''); setStorageFilter('')
                     setSortKey('vintage'); setSortDir('desc')
-                    router.replace('/', { scroll: false })
+                    router.replace(pathname, { scroll: false })
                   }}
                   className="px-2 py-1.5 rounded text-sm underline"
                   style={{ color: 'var(--wine)' }}
@@ -254,16 +263,16 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
                   { col: 'producer' as SortKey, label: 'Producer' },
                 ].map(h => (
                   <th key={h.col} className="text-left px-3 py-2 font-semibold">
-                    <SortBtn col={h.col} label={h.label} />
+                    <SortBtn col={h.col} label={h.label} sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                   </th>
                 ))}
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="name" label="Name" /></th>
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="grape" label="Grape" /></th>
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="region" label="Region" /></th>
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="rating" label="Rating" /></th>
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="drink_by" label="Drink Window" /></th>
-                <th className="text-right px-3 py-2 font-semibold"><SortBtn col="price" label="Value" /></th>
-                <th className="text-right px-3 py-2 font-semibold"><SortBtn col="quantity" label="Qty" /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="name" label="Name" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="grape" label="Grape" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="region" label="Region" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="rating" label="Rating" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="drink_by" label="Drink Window" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-right px-3 py-2 font-semibold"><SortBtn col="price" label="Value" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-right px-3 py-2 font-semibold"><SortBtn col="quantity" label="Qty" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
                 <th className="w-8 px-2 py-2" />
               </tr>
             </thead>

@@ -441,7 +441,7 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
             🍷 Drink
           </button>
         )}
-        <button onClick={enrich} disabled={enriching} className="px-5 py-2 rounded font-medium text-sm" style={{ background: 'var(--parchment)', color: 'var(--wine)', border: '1px solid var(--border)' }}>
+        <button onClick={enrich} disabled={enriching || saving} className="px-5 py-2 rounded font-medium text-sm" style={{ background: 'var(--parchment)', color: 'var(--wine)', border: '1px solid var(--border)' }}>
           {enriching ? 'Looking up…' : '✨ Enrich with AI'}
         </button>
         <button onClick={deleteWine} disabled={deleting} className="px-5 py-2 rounded font-medium text-sm ml-auto" style={{ background: '#fee2e2', color: '#991b1b' }}>
