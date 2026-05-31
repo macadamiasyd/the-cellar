@@ -85,7 +85,6 @@ export default function ImageUpload({ wineId, currentUrl, currentSource, wineTyp
         ref={fileRef}
         type="file"
         accept="image/jpeg,image/png,image/webp"
-        capture="environment"
         className="hidden"
         onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f) }}
       />
