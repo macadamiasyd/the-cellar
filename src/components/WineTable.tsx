@@ -7,6 +7,7 @@ import { getDrinkStatus } from '@/lib/types'
 import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
 import WineImage from './WineImage'
+import DrinkModal from './DrinkModal'
 
 type SortKey = 'vintage' | 'producer' | 'name' | 'grape' | 'region' | 'rating' | 'drink_by' | 'price' | 'quantity'
 
@@ -45,6 +46,7 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
   )
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialParams.order === 'asc' ? 'asc' : 'desc')
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [drinkingWine, setDrinkingWine] = useState<Wine | null>(null)
 
   const updateUrl = useCallback((patch: Record<string, string>) => {
     const p = new URLSearchParams()
@@ -104,6 +106,22 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
       return 0
     })
   }, [wines, search, typeFilter, countryFilter, regionFilter, grapeFilter, ratingFilter, windowFilter, storageFilter, sortKey, sortDir])
+
+  async function handleTableDrink(wine: Wine, tastingNote: string) {
+    setDrinkingWine(null)
+    const newQty = wine.quantity - 1
+    const today = new Date().toISOString().split('T')[0]
+    const body: Record<string, unknown> = { quantity: newQty }
+    if (tastingNote) {
+      body.tasting_notes = `${wine.tasting_notes ? wine.tasting_notes + '\n\n' : ''}---[${today}] ${tastingNote}`
+    }
+    await fetch(`/api/wines/${wine.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    router.refresh()
+  }
 
   function toggleSort(key: SortKey) {
     const newDir = sortKey === key ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc'
@@ -218,6 +236,7 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
                 <th className="text-left px-3 py-2 font-semibold"><SortBtn col="drink_by" label="Drink Window" /></th>
                 <th className="text-right px-3 py-2 font-semibold"><SortBtn col="price" label="Value" /></th>
                 <th className="text-right px-3 py-2 font-semibold"><SortBtn col="quantity" label="Qty" /></th>
+                <th className="w-8 px-2 py-2" />
               </tr>
             </thead>
             <tbody>
@@ -242,10 +261,21 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
                   <td className="px-3 py-2"><DrinkWindowBadge wine={wine} /></td>
                   <td className="px-3 py-2 text-right font-mono">{wine.price ? `$${wine.price.toLocaleString()}` : '—'}</td>
                   <td className="px-3 py-2 text-right font-mono font-medium" style={{ color: wine.quantity > 1 ? 'var(--wine)' : undefined }}>{wine.quantity}</td>
+                  <td className="px-2 py-1 text-center">
+                    {wine.quantity > 0 && !isWishlist && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setDrinkingWine(wine) }}
+                        title="Drink a bottle"
+                        className="text-base opacity-40 hover:opacity-100 transition-opacity"
+                      >
+                        🍷
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={9} className="px-3 py-12 text-center" style={{ color: 'var(--muted)' }}>No wines match your filters.</td></tr>
+                <tr><td colSpan={10} className="px-3 py-12 text-center" style={{ color: 'var(--muted)' }}>No wines match your filters.</td></tr>
               )}
             </tbody>
           </table>
@@ -278,6 +308,14 @@ export default function WineTable({ wines, isWishlist = false, initialParams = {
           ))}
         </div>
       </div>
+
+      {drinkingWine && (
+        <DrinkModal
+          wine={drinkingWine}
+          onConfirm={(note) => handleTableDrink(drinkingWine, note)}
+          onCancel={() => setDrinkingWine(null)}
+        />
+      )}
     </div>
   )
 }

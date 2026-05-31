@@ -6,6 +6,8 @@ import type { Wine } from '@/lib/types'
 import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
 import ImageUpload from './ImageUpload'
+import DrinkModal from './DrinkModal'
+import LastBottleModal from './LastBottleModal'
 
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
 
@@ -60,6 +62,8 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
   const [deleting, setDeleting] = useState(false)
   const [findingImage, setFindingImage] = useState(false)
   const [error, setError] = useState('')
+  const [drinkModalOpen, setDrinkModalOpen] = useState(false)
+  const [lastBottleModalOpen, setLastBottleModalOpen] = useState(false)
 
   function set(field: keyof Wine, value: unknown) {
     setWine(w => ({ ...w, [field]: value }))
@@ -149,6 +153,47 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
       body: JSON.stringify({ quantity: newQty }),
     })
     if (res.ok) setWine(w => ({ ...w, quantity: newQty }))
+  }
+
+  async function handleDrink(tastingNote: string) {
+    setDrinkModalOpen(false)
+    const newQty = wine.quantity - 1
+    const today = new Date().toISOString().split('T')[0]
+    const body: Record<string, unknown> = { quantity: newQty }
+    if (tastingNote) {
+      body.tasting_notes = `${wine.tasting_notes ? wine.tasting_notes + '\n\n' : ''}---[${today}] ${tastingNote}`
+    }
+    const res = await fetch(`/api/wines/${wine.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setWine(updated)
+      if (newQty === 0) setLastBottleModalOpen(true)
+    } else {
+      setError('Failed to record drink.')
+    }
+  }
+
+  async function handleLastBottle(action: 'wishlist' | 'keep' | 'remove') {
+    setLastBottleModalOpen(false)
+    if (action === 'wishlist') {
+      const res = await fetch(`/api/wines/${wine.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_wishlist: true }),
+      })
+      if (res.ok) router.push('/wishlist')
+      else setError('Failed to add to wishlist.')
+    } else if (action === 'remove') {
+      if (!confirm('Delete this wine? This cannot be undone.')) return
+      const res = await fetch(`/api/wines/${wine.id}`, { method: 'DELETE' })
+      if (res.ok) router.push('/')
+      else setError('Delete failed.')
+    }
+    // 'keep' — nothing to do, qty is already 0
   }
 
   async function moveToCellar() {
@@ -289,6 +334,16 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
             Edit
           </button>
         )}
+        {!wine.is_wishlist && (
+          <button
+            onClick={() => setDrinkModalOpen(true)}
+            disabled={wine.quantity === 0}
+            className="px-5 py-2 rounded font-medium text-sm disabled:opacity-40"
+            style={{ background: 'var(--parchment)', color: 'var(--wine)', border: '1px solid var(--border)' }}
+          >
+            🍷 Drink
+          </button>
+        )}
         <button onClick={enrich} disabled={enriching} className="px-5 py-2 rounded font-medium text-sm" style={{ background: 'var(--parchment)', color: 'var(--wine)', border: '1px solid var(--border)' }}>
           {enriching ? 'Looking up…' : '✨ Enrich with AI'}
         </button>
@@ -296,6 +351,22 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
           {deleting ? 'Deleting…' : 'Delete'}
         </button>
       </div>
+
+      {drinkModalOpen && (
+        <DrinkModal
+          wine={wine}
+          onConfirm={handleDrink}
+          onCancel={() => setDrinkModalOpen(false)}
+        />
+      )}
+      {lastBottleModalOpen && (
+        <LastBottleModal
+          wineName={`${wine.vintage} ${wine.producer}${wine.name ? ' ' + wine.name : ''}`}
+          onAddToWishlist={() => handleLastBottle('wishlist')}
+          onKeepInCellar={() => handleLastBottle('keep')}
+          onRemove={() => handleLastBottle('remove')}
+        />
+      )}
     </div>
   )
 }
