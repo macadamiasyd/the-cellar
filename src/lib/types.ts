@@ -54,6 +54,7 @@ export interface AILookupResponse {
   drink_from: number | null
   drink_by: number | null
   tasting_notes: string | null
+  tasting_source: string | null
   general_notes: string | null
   food_pairings: string | null
   score: string | null

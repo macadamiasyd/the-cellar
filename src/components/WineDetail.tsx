@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Wine } from '@/lib/types'
+import type { Wine, AILookupResponse } from '@/lib/types'
 import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
 import ImageUpload from './ImageUpload'
@@ -10,6 +10,8 @@ import DrinkModal from './DrinkModal'
 import LastBottleModal from './LastBottleModal'
 
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
+
+const ENRICHABLE_FIELDS = ['grape', 'region', 'country', 'type', 'abv', 'drink_from', 'drink_by', 'tasting_notes', 'general_notes', 'food_pairings', 'score'] as const
 
 function Field({ label, value, edit, onChange, textarea = false, type = 'text' }: {
   label: string
@@ -64,6 +66,8 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
   const [error, setError] = useState('')
   const [drinkModalOpen, setDrinkModalOpen] = useState(false)
   const [lastBottleModalOpen, setLastBottleModalOpen] = useState(false)
+  const [enrichData, setEnrichData] = useState<AILookupResponse | null>(null)
+  const [enrichAccepted, setEnrichAccepted] = useState<Record<string, boolean>>({})
 
   function set(field: keyof Wine, value: unknown) {
     setWine(w => ({ ...w, [field]: value }))
@@ -96,27 +100,44 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
       body: JSON.stringify({ producer: wine.producer, vintage: wine.vintage, name: wine.name }),
     })
     if (res.ok) {
-      const data = await res.json()
-      setWine(w => ({
-        ...w,
-        grape: w.grape || data.grape,
-        region: w.region || data.region,
-        country: w.country || data.country,
-        type: w.type || data.type,
-        abv: w.abv || data.abv,
-        drink_from: w.drink_from || data.drink_from,
-        drink_by: w.drink_by || data.drink_by,
-        tasting_notes: w.tasting_notes || data.tasting_notes,
-        general_notes: w.general_notes || data.general_notes,
-        food_pairings: w.food_pairings || data.food_pairings,
-        score: w.score || data.score,
-        ai_enriched: true,
-      }))
-      setEditing(true)
+      const data: AILookupResponse = await res.json()
+      setEnrichData(data)
+      const accepted: Record<string, boolean> = {}
+      for (const f of ENRICHABLE_FIELDS) {
+        // Pre-check fields that have a suggested value AND the wine doesn't already have one
+        if (data[f] !== null && data[f] !== undefined && !wine[f as keyof Wine]) accepted[f] = true
+      }
+      setEnrichAccepted(accepted)
     } else {
       setError('AI enrichment failed.')
     }
     setEnriching(false)
+  }
+
+  async function applyEnrichment() {
+    if (!enrichData) return
+    const updates: Record<string, unknown> = { ai_enriched: true }
+    for (const f of ENRICHABLE_FIELDS) {
+      if (enrichAccepted[f] && enrichData[f] !== null && enrichData[f] !== undefined) {
+        updates[f] = enrichData[f]
+      }
+    }
+    setSaving(true)
+    setError('')
+    const res = await fetch(`/api/wines/${wine.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    setSaving(false)
+    if (res.ok) {
+      const updated = await res.json()
+      setWine(updated)
+      setEnrichData(null)
+      setEnrichAccepted({})
+    } else {
+      setError('Failed to save enrichment.')
+    }
   }
 
   async function findImage() {
@@ -272,6 +293,79 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
       </div>
 
       {error && <p className="mb-4 text-sm px-3 py-2 rounded" style={{ background: '#fee2e2', color: '#991b1b' }}>{error}</p>}
+
+      {enrichData && (
+        <div className="mb-6 rounded-xl p-5" style={{ background: 'var(--parchment)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-sm">✨ AI Enrichment Results</h3>
+            <span
+              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              style={{
+                background: enrichData.confidence === 'high' ? '#dcfce7' : enrichData.confidence === 'medium' ? '#fef9c3' : '#fee2e2',
+                color: enrichData.confidence === 'high' ? '#166534' : enrichData.confidence === 'medium' ? '#854d0e' : '#991b1b',
+              }}
+            >
+              {enrichData.confidence} confidence
+            </span>
+          </div>
+          {enrichData.confidence === 'low' && (
+            <p className="text-xs mb-3 px-3 py-2 rounded" style={{ background: '#fee2e2', color: '#991b1b' }}>
+              These details are general estimates — verify before saving.
+            </p>
+          )}
+          <div className="space-y-2 mb-4">
+            {([
+              ['grape', 'Grape'],
+              ['region', 'Region'],
+              ['country', 'Country'],
+              ['type', 'Type'],
+              ['abv', 'ABV (%)'],
+              ['drink_from', 'Drink From'],
+              ['drink_by', 'Drink By'],
+              ['tasting_notes', 'Tasting Notes'],
+              ['general_notes', 'General Notes'],
+              ['food_pairings', 'Food Pairings'],
+              ['score', 'Critic Score'],
+            ] as [keyof AILookupResponse, string][])
+              .filter(([k]) => enrichData[k] !== null && enrichData[k] !== undefined)
+              .map(([key, label]) => (
+                <label key={key} className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enrichAccepted[key] ?? false}
+                    onChange={e => setEnrichAccepted(p => ({ ...p, [key]: e.target.checked }))}
+                    className="mt-0.5"
+                    style={{ accentColor: 'var(--wine)' }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--muted)' }}>{label}</span>
+                    <p className="text-sm mt-0.5 break-words">{String(enrichData[key])}</p>
+                    {key === 'tasting_notes' && enrichData.tasting_source && (
+                      <p className="text-xs mt-0.5 italic" style={{ color: 'var(--muted)' }}>Source: {enrichData.tasting_source}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setEnrichData(null); setEnrichAccepted({}) }}
+              className="px-4 py-2 rounded text-sm font-medium"
+              style={{ background: 'var(--cream)', border: '1px solid var(--border)', color: 'var(--ink)' }}
+            >
+              Discard
+            </button>
+            <button
+              onClick={applyEnrichment}
+              disabled={saving || Object.values(enrichAccepted).every(v => !v)}
+              className="px-4 py-2 rounded text-sm font-semibold disabled:opacity-50"
+              style={{ background: 'var(--wine)', color: 'var(--cream)' }}
+            >
+              {saving ? 'Saving…' : 'Apply Selected'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Fields */}
       <div className="rounded-xl p-6 mb-6" style={{ background: 'var(--parchment)', border: '1px solid var(--border)' }}>
