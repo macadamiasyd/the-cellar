@@ -1,23 +1,43 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useMemo, useCallback } from 'react'
+import { useRouter, usePathname } from 'next/navigation'
 import type { Wine } from '@/lib/types'
 import { getDrinkStatus } from '@/lib/types'
 import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
 import WineImage from './WineImage'
+import DrinkModal from './DrinkModal'
+import LastBottleModal from './LastBottleModal'
 
-type SortKey = 'vintage' | 'producer' | 'grape' | 'region' | 'rating' | 'drink_by' | 'price' | 'quantity'
+type SortKey = 'vintage' | 'producer' | 'name' | 'grape' | 'region' | 'rating' | 'drink_by' | 'price' | 'quantity'
 
 interface Props {
   wines: Wine[]
   isWishlist?: boolean
+  initialParams?: Record<string, string>
 }
 
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
 const DRINK_WINDOWS = ['now', 'soon', 'cellaring', 'past']
 const STORAGE_OPTIONS = ['Refrigerator', 'Home', 'Storage']
+const SORT_KEYS = ['vintage', 'producer', 'name', 'grape', 'region', 'rating', 'drink_by', 'price', 'quantity'] as const
+const NUMERIC_KEYS = new Set<string>(['vintage', 'rating', 'drink_by', 'drink_from', 'price', 'quantity'])
+
+function SortBtn({ col, label, sortKey, sortDir, onToggle }: {
+  col: SortKey
+  label: string
+  sortKey: SortKey
+  sortDir: 'asc' | 'desc'
+  onToggle: (key: SortKey) => void
+}) {
+  return (
+    <button onClick={() => onToggle(col)} className="flex items-center gap-1 hover:opacity-70 transition-opacity">
+      {label}
+      {sortKey === col && <span>{sortDir === 'asc' ? '↑' : '↓'}</span>}
+    </button>
+  )
+}
 
 function normalizeStorage(s: string | null | undefined): string {
   if (!s) return ''
@@ -28,19 +48,46 @@ function normalizeStorage(s: string | null | undefined): string {
   return s.replace(/\s*x\s*\d+/gi, '').trim()
 }
 
-export default function WineTable({ wines, isWishlist = false }: Props) {
+export default function WineTable({ wines, isWishlist = false, initialParams = {} }: Props) {
   const router = useRouter()
-  const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
-  const [countryFilter, setCountryFilter] = useState('')
-  const [regionFilter, setRegionFilter] = useState('')
-  const [grapeFilter, setGrapeFilter] = useState('')
-  const [ratingFilter, setRatingFilter] = useState('')
-  const [windowFilter, setWindowFilter] = useState('')
-  const [storageFilter, setStorageFilter] = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('vintage')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const pathname = usePathname()
+  const [search, setSearchState] = useState(initialParams.search ?? '')
+  const [typeFilter, setTypeFilter] = useState(initialParams.type ?? '')
+  const [countryFilter, setCountryFilter] = useState(initialParams.country ?? '')
+  const [regionFilter, setRegionFilter] = useState(initialParams.region ?? '')
+  const [grapeFilter, setGrapeFilter] = useState(initialParams.grape ?? '')
+  const [ratingFilter, setRatingFilter] = useState(initialParams.rating ?? '')
+  const [windowFilter, setWindowFilter] = useState(initialParams.window ?? '')
+  const [storageFilter, setStorageFilter] = useState(initialParams.storage ?? '')
+  const [sortKey, setSortKey] = useState<SortKey>(
+    (SORT_KEYS as readonly string[]).includes(initialParams.sort ?? '') ? (initialParams.sort as SortKey) : 'vintage'
+  )
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>(initialParams.order === 'asc' ? 'asc' : 'desc')
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [drinkingWine, setDrinkingWine] = useState<Wine | null>(null)
+  const [lastBottleWine, setLastBottleWine] = useState<Wine | null>(null)
+
+  const updateUrl = useCallback((patch: Record<string, string>) => {
+    const p = new URLSearchParams()
+    const current: Record<string, string> = {
+      search, type: typeFilter, country: countryFilter, region: regionFilter,
+      grape: grapeFilter, rating: ratingFilter, window: windowFilter,
+      storage: storageFilter, sort: sortKey, order: sortDir,
+    }
+    const merged = { ...current, ...patch }
+    for (const [k, v] of Object.entries(merged)) {
+      if (v && !(k === 'sort' && v === 'vintage') && !(k === 'order' && v === 'desc')) {
+        p.set(k, v)
+      }
+    }
+    const qs = p.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }, [search, typeFilter, countryFilter, regionFilter, grapeFilter, ratingFilter, windowFilter, storageFilter, sortKey, sortDir, router, pathname])
+
+  function setSearch(v: string) {
+    setSearchState(v)
+    updateUrl({ search: v })
+  }
 
   const countries = useMemo(() => [...new Set(wines.map(w => w.country).filter(Boolean))].sort() as string[], [wines])
   const regions = useMemo(() => [...new Set(wines.map(w => w.region).filter(Boolean))].sort() as string[], [wines])
@@ -63,26 +110,70 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
     if (storageFilter) list = list.filter(w => normalizeStorage(w.storage_location) === storageFilter)
 
     return [...list].sort((a, b) => {
-      const av = a[sortKey] ?? (typeof a[sortKey] === 'number' ? -Infinity : '')
-      const bv = b[sortKey] ?? (typeof b[sortKey] === 'number' ? -Infinity : '')
+      if (sortKey === 'name') {
+        const aEmpty = !a.name?.trim()
+        const bEmpty = !b.name?.trim()
+        if (aEmpty && !bEmpty) return 1
+        if (!aEmpty && bEmpty) return -1
+        if (aEmpty && bEmpty) return 0
+        return a.name!.localeCompare(b.name!) * (sortDir === 'asc' ? 1 : -1)
+      }
+      const fallback = NUMERIC_KEYS.has(sortKey) ? -Infinity : ''
+      const av = a[sortKey] ?? fallback
+      const bv = b[sortKey] ?? fallback
       if (av < bv) return sortDir === 'asc' ? -1 : 1
       if (av > bv) return sortDir === 'asc' ? 1 : -1
       return 0
     })
   }, [wines, search, typeFilter, countryFilter, regionFilter, grapeFilter, ratingFilter, windowFilter, storageFilter, sortKey, sortDir])
 
-  function toggleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir('asc') }
+  async function handleTableDrink(wine: Wine, tastingNote: string) {
+    setDrinkingWine(null)
+    const newQty = wine.quantity - 1
+    const today = new Date().toISOString().split('T')[0]
+    const body: Record<string, unknown> = { quantity: newQty }
+    if (tastingNote) {
+      body.tasting_notes = `${wine.tasting_notes ? wine.tasting_notes + '\n\n' : ''}---[${today}] ${tastingNote}`
+    }
+    const res = await fetch(`/api/wines/${wine.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      alert('Failed to record drink. Please try again.')
+      return
+    }
+    if (newQty === 0) {
+      setLastBottleWine({ ...wine, quantity: 0 })
+    } else {
+      router.refresh()
+    }
   }
 
-  function SortBtn({ col, label }: { col: SortKey; label: string }) {
-    return (
-      <button onClick={() => toggleSort(col)} className="flex items-center gap-1 hover:opacity-70 transition-opacity">
-        {label}
-        {sortKey === col && <span>{sortDir === 'asc' ? '↑' : '↓'}</span>}
-      </button>
-    )
+  async function handleTableLastBottle(wine: Wine, action: 'wishlist' | 'keep' | 'remove') {
+    if (action === 'wishlist') {
+      const res = await fetch(`/api/wines/${wine.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_wishlist: true }),
+      })
+      if (!res.ok) { alert('Failed to add to wishlist.'); return }
+    } else if (action === 'remove') {
+      if (!confirm('Delete this wine? This cannot be undone.')) return
+      const res = await fetch(`/api/wines/${wine.id}`, { method: 'DELETE' })
+      if (!res.ok) { alert('Delete failed.'); return }
+    }
+    // 'keep' — quantity is already 0; it will drop out of the main list (qty > 0 filter)
+    setLastBottleWine(null)
+    router.refresh()
+  }
+
+  function toggleSort(key: SortKey) {
+    const newDir = sortKey === key ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc'
+    setSortKey(key)
+    setSortDir(newDir)
+    updateUrl({ sort: key, order: newDir })
   }
 
   const totalBottles = filtered.reduce((s, w) => s + w.quantity, 0)
@@ -116,12 +207,12 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
           {filtersOpen && (
             <div className="flex gap-2 flex-wrap mt-2">
               {[
-                { val: typeFilter, set: setTypeFilter, opts: WINE_TYPES, label: 'Type' },
-                { val: countryFilter, set: setCountryFilter, opts: countries, label: 'Country' },
-                { val: regionFilter, set: setRegionFilter, opts: regions, label: 'Region' },
-                { val: ratingFilter, set: setRatingFilter, opts: ['5','4','3','2','1'], label: 'Rating' },
-                { val: windowFilter, set: setWindowFilter, opts: DRINK_WINDOWS, label: 'Window' },
-                { val: storageFilter, set: setStorageFilter, opts: STORAGE_OPTIONS, label: 'Storage' },
+                { val: typeFilter, set: (v: string) => { setTypeFilter(v); updateUrl({ type: v }) }, opts: WINE_TYPES, label: 'Type' },
+                { val: countryFilter, set: (v: string) => { setCountryFilter(v); updateUrl({ country: v }) }, opts: countries, label: 'Country' },
+                { val: regionFilter, set: (v: string) => { setRegionFilter(v); updateUrl({ region: v }) }, opts: regions, label: 'Region' },
+                { val: ratingFilter, set: (v: string) => { setRatingFilter(v); updateUrl({ rating: v }) }, opts: ['5','4','3','2','1'], label: 'Rating' },
+                { val: windowFilter, set: (v: string) => { setWindowFilter(v); updateUrl({ window: v }) }, opts: DRINK_WINDOWS, label: 'Window' },
+                { val: storageFilter, set: (v: string) => { setStorageFilter(v); updateUrl({ storage: v }) }, opts: STORAGE_OPTIONS, label: 'Storage' },
               ].map(f => (
                 <select
                   key={f.label}
@@ -137,13 +228,18 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
               <input
                 placeholder="Grape…"
                 value={grapeFilter}
-                onChange={e => setGrapeFilter(e.target.value)}
+                onChange={e => { setGrapeFilter(e.target.value); updateUrl({ grape: e.target.value }) }}
                 className="px-2 py-1.5 rounded border text-sm w-28"
                 style={{ borderColor: 'var(--border)', background: 'var(--cream)' }}
               />
               {(typeFilter || countryFilter || regionFilter || grapeFilter || ratingFilter || windowFilter || storageFilter) && (
                 <button
-                  onClick={() => { setTypeFilter(''); setCountryFilter(''); setRegionFilter(''); setGrapeFilter(''); setRatingFilter(''); setWindowFilter(''); setStorageFilter('') }}
+                  onClick={() => {
+                    setSearchState(''); setTypeFilter(''); setCountryFilter(''); setRegionFilter('')
+                    setGrapeFilter(''); setRatingFilter(''); setWindowFilter(''); setStorageFilter('')
+                    setSortKey('vintage'); setSortDir('desc')
+                    router.replace(pathname, { scroll: false })
+                  }}
                   className="px-2 py-1.5 rounded text-sm underline"
                   style={{ color: 'var(--wine)' }}
                 >
@@ -167,16 +263,17 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
                   { col: 'producer' as SortKey, label: 'Producer' },
                 ].map(h => (
                   <th key={h.col} className="text-left px-3 py-2 font-semibold">
-                    <SortBtn col={h.col} label={h.label} />
+                    <SortBtn col={h.col} label={h.label} sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} />
                   </th>
                 ))}
-                <th className="text-left px-3 py-2 font-semibold">Name</th>
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="grape" label="Grape" /></th>
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="region" label="Region" /></th>
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="rating" label="Rating" /></th>
-                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="drink_by" label="Drink Window" /></th>
-                <th className="text-right px-3 py-2 font-semibold"><SortBtn col="price" label="Value" /></th>
-                <th className="text-right px-3 py-2 font-semibold"><SortBtn col="quantity" label="Qty" /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="name" label="Name" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="grape" label="Grape" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="region" label="Region" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="rating" label="Rating" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-left px-3 py-2 font-semibold"><SortBtn col="drink_by" label="Drink Window" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-right px-3 py-2 font-semibold"><SortBtn col="price" label="Value" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="text-right px-3 py-2 font-semibold"><SortBtn col="quantity" label="Qty" sortKey={sortKey} sortDir={sortDir} onToggle={toggleSort} /></th>
+                <th className="w-8 px-2 py-2" />
               </tr>
             </thead>
             <tbody>
@@ -201,10 +298,21 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
                   <td className="px-3 py-2"><DrinkWindowBadge wine={wine} /></td>
                   <td className="px-3 py-2 text-right font-mono">{wine.price ? `$${wine.price.toLocaleString()}` : '—'}</td>
                   <td className="px-3 py-2 text-right font-mono font-medium" style={{ color: wine.quantity > 1 ? 'var(--wine)' : undefined }}>{wine.quantity}</td>
+                  <td className="px-2 py-1 text-center">
+                    {wine.quantity > 0 && !isWishlist && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setDrinkingWine(wine) }}
+                        title="Drink a bottle"
+                        className="text-base opacity-40 hover:opacity-100 transition-opacity"
+                      >
+                        🍷
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={9} className="px-3 py-12 text-center" style={{ color: 'var(--muted)' }}>No wines match your filters.</td></tr>
+                <tr><td colSpan={11} className="px-3 py-12 text-center" style={{ color: 'var(--muted)' }}>No wines match your filters.</td></tr>
               )}
             </tbody>
           </table>
@@ -237,6 +345,22 @@ export default function WineTable({ wines, isWishlist = false }: Props) {
           ))}
         </div>
       </div>
+
+      {drinkingWine && (
+        <DrinkModal
+          wine={drinkingWine}
+          onConfirm={(note) => handleTableDrink(drinkingWine, note)}
+          onCancel={() => setDrinkingWine(null)}
+        />
+      )}
+      {lastBottleWine && (
+        <LastBottleModal
+          wineName={`${lastBottleWine.vintage} ${lastBottleWine.producer}${lastBottleWine.name ? ' ' + lastBottleWine.name : ''}`}
+          onAddToWishlist={() => handleTableLastBottle(lastBottleWine, 'wishlist')}
+          onKeepInCellar={() => handleTableLastBottle(lastBottleWine, 'keep')}
+          onRemove={() => handleTableLastBottle(lastBottleWine, 'remove')}
+        />
+      )}
     </div>
   )
 }

@@ -3,7 +3,12 @@ import WineTable from '@/components/WineTable'
 
 export const revalidate = 0
 
-export default async function CellarPage() {
+interface PageProps {
+  searchParams: Promise<Record<string, string>>
+}
+
+export default async function CellarPage({ searchParams }: PageProps) {
+  const params = await searchParams
   const supabase = await createClient()
   const { data: wines, error } = await supabase
     .from('wines')
@@ -30,7 +35,7 @@ export default async function CellarPage() {
           AUD ${wines.reduce((s, w) => s + ((w.price ?? 0) * w.quantity), 0).toLocaleString()}
         </p>
       </div>
-      <WineTable wines={wines} />
+      <WineTable wines={wines} initialParams={params} />
     </div>
   )
 }

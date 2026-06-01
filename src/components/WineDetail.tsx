@@ -2,12 +2,16 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { Wine } from '@/lib/types'
+import type { Wine, AILookupResponse } from '@/lib/types'
 import RatingStars from './RatingStars'
 import DrinkWindowBadge from './DrinkWindowBadge'
 import ImageUpload from './ImageUpload'
+import DrinkModal from './DrinkModal'
+import LastBottleModal from './LastBottleModal'
 
 const WINE_TYPES = ['Red', 'White', 'Sparkling', 'Rosé', 'Fortified', 'Dessert', 'Orange']
+
+const ENRICHABLE_FIELDS = ['grape', 'region', 'country', 'type', 'abv', 'drink_from', 'drink_by', 'tasting_notes', 'general_notes', 'food_pairings', 'score'] as const
 
 function Field({ label, value, edit, onChange, textarea = false, type = 'text' }: {
   label: string
@@ -60,6 +64,10 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
   const [deleting, setDeleting] = useState(false)
   const [findingImage, setFindingImage] = useState(false)
   const [error, setError] = useState('')
+  const [drinkModalOpen, setDrinkModalOpen] = useState(false)
+  const [lastBottleModalOpen, setLastBottleModalOpen] = useState(false)
+  const [enrichData, setEnrichData] = useState<AILookupResponse | null>(null)
+  const [enrichAccepted, setEnrichAccepted] = useState<Record<string, boolean>>({})
 
   function set(field: keyof Wine, value: unknown) {
     setWine(w => ({ ...w, [field]: value }))
@@ -92,27 +100,44 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
       body: JSON.stringify({ producer: wine.producer, vintage: wine.vintage, name: wine.name }),
     })
     if (res.ok) {
-      const data = await res.json()
-      setWine(w => ({
-        ...w,
-        grape: w.grape || data.grape,
-        region: w.region || data.region,
-        country: w.country || data.country,
-        type: w.type || data.type,
-        abv: w.abv || data.abv,
-        drink_from: w.drink_from || data.drink_from,
-        drink_by: w.drink_by || data.drink_by,
-        tasting_notes: w.tasting_notes || data.tasting_notes,
-        general_notes: w.general_notes || data.general_notes,
-        food_pairings: w.food_pairings || data.food_pairings,
-        score: w.score || data.score,
-        ai_enriched: true,
-      }))
-      setEditing(true)
+      const data: AILookupResponse = await res.json()
+      setEnrichData(data)
+      const accepted: Record<string, boolean> = {}
+      for (const f of ENRICHABLE_FIELDS) {
+        // Pre-check fields that have a suggested value AND the wine doesn't already have one
+        if (data[f] !== null && data[f] !== undefined && !wine[f as keyof Wine]) accepted[f] = true
+      }
+      setEnrichAccepted(accepted)
     } else {
       setError('AI enrichment failed.')
     }
     setEnriching(false)
+  }
+
+  async function applyEnrichment() {
+    if (!enrichData) return
+    const updates: Record<string, unknown> = { ai_enriched: true }
+    for (const f of ENRICHABLE_FIELDS) {
+      if (enrichAccepted[f] && enrichData[f] !== null && enrichData[f] !== undefined) {
+        updates[f] = enrichData[f]
+      }
+    }
+    setSaving(true)
+    setError('')
+    const res = await fetch(`/api/wines/${wine.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    })
+    setSaving(false)
+    if (res.ok) {
+      const updated = await res.json()
+      setWine(updated)
+      setEnrichData(null)
+      setEnrichAccepted({})
+    } else {
+      setError('Failed to save enrichment.')
+    }
   }
 
   async function findImage() {
@@ -149,6 +174,50 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
       body: JSON.stringify({ quantity: newQty }),
     })
     if (res.ok) setWine(w => ({ ...w, quantity: newQty }))
+  }
+
+  async function handleDrink(tastingNote: string) {
+    setDrinkModalOpen(false)
+    const newQty = wine.quantity - 1
+    const today = new Date().toISOString().split('T')[0]
+    const body: Record<string, unknown> = { quantity: newQty }
+    if (tastingNote) {
+      body.tasting_notes = `${wine.tasting_notes ? wine.tasting_notes + '\n\n' : ''}---[${today}] ${tastingNote}`
+    }
+    const res = await fetch(`/api/wines/${wine.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (res.ok) {
+      const updated = await res.json()
+      setWine(updated)
+      if (newQty === 0) setLastBottleModalOpen(true)
+    } else {
+      setError('Failed to record drink.')
+    }
+  }
+
+  async function handleLastBottle(action: 'wishlist' | 'keep' | 'remove') {
+    if (action === 'wishlist') {
+      setLastBottleModalOpen(false)
+      const res = await fetch(`/api/wines/${wine.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_wishlist: true }),
+      })
+      if (res.ok) router.push('/wishlist')
+      else setError('Failed to add to wishlist.')
+    } else if (action === 'remove') {
+      if (!confirm('Delete this wine? This cannot be undone.')) return
+      setLastBottleModalOpen(false)
+      const res = await fetch(`/api/wines/${wine.id}`, { method: 'DELETE' })
+      if (res.ok) router.push('/')
+      else setError('Delete failed.')
+    } else {
+      // 'keep' — nothing to do, qty is already 0
+      setLastBottleModalOpen(false)
+    }
   }
 
   async function moveToCellar() {
@@ -225,6 +294,79 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
 
       {error && <p className="mb-4 text-sm px-3 py-2 rounded" style={{ background: '#fee2e2', color: '#991b1b' }}>{error}</p>}
 
+      {enrichData && (
+        <div className="mb-6 rounded-xl p-5" style={{ background: 'var(--parchment)', border: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-sm">✨ AI Enrichment Results</h3>
+            <span
+              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              style={{
+                background: enrichData.confidence === 'high' ? '#dcfce7' : enrichData.confidence === 'medium' ? '#fef9c3' : '#fee2e2',
+                color: enrichData.confidence === 'high' ? '#166534' : enrichData.confidence === 'medium' ? '#854d0e' : '#991b1b',
+              }}
+            >
+              {enrichData.confidence} confidence
+            </span>
+          </div>
+          {enrichData.confidence === 'low' && (
+            <p className="text-xs mb-3 px-3 py-2 rounded" style={{ background: '#fee2e2', color: '#991b1b' }}>
+              These details are general estimates — verify before saving.
+            </p>
+          )}
+          <div className="space-y-2 mb-4">
+            {([
+              ['grape', 'Grape'],
+              ['region', 'Region'],
+              ['country', 'Country'],
+              ['type', 'Type'],
+              ['abv', 'ABV (%)'],
+              ['drink_from', 'Drink From'],
+              ['drink_by', 'Drink By'],
+              ['tasting_notes', 'Tasting Notes'],
+              ['general_notes', 'General Notes'],
+              ['food_pairings', 'Food Pairings'],
+              ['score', 'Critic Score'],
+            ] as [keyof AILookupResponse, string][])
+              .filter(([k]) => enrichData[k] !== null && enrichData[k] !== undefined)
+              .map(([key, label]) => (
+                <label key={key} className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={enrichAccepted[key] ?? false}
+                    onChange={e => setEnrichAccepted(p => ({ ...p, [key]: e.target.checked }))}
+                    className="mt-0.5"
+                    style={{ accentColor: 'var(--wine)' }}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--muted)' }}>{label}</span>
+                    <p className="text-sm mt-0.5 break-words">{String(enrichData[key])}</p>
+                    {key === 'tasting_notes' && enrichData.tasting_source && (
+                      <p className="text-xs mt-0.5 italic" style={{ color: 'var(--muted)' }}>Source: {enrichData.tasting_source}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => { setEnrichData(null); setEnrichAccepted({}) }}
+              className="px-4 py-2 rounded text-sm font-medium"
+              style={{ background: 'var(--cream)', border: '1px solid var(--border)', color: 'var(--ink)' }}
+            >
+              Discard
+            </button>
+            <button
+              onClick={applyEnrichment}
+              disabled={saving || Object.values(enrichAccepted).every(v => !v)}
+              className="px-4 py-2 rounded text-sm font-semibold disabled:opacity-50"
+              style={{ background: 'var(--wine)', color: 'var(--cream)' }}
+            >
+              {saving ? 'Saving…' : 'Apply Selected'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Fields */}
       <div className="rounded-xl p-6 mb-6" style={{ background: 'var(--parchment)', border: '1px solid var(--border)' }}>
         <div className="grid sm:grid-cols-2 gap-4">
@@ -289,13 +431,39 @@ export default function WineDetail({ wine: initial }: { wine: Wine }) {
             Edit
           </button>
         )}
-        <button onClick={enrich} disabled={enriching} className="px-5 py-2 rounded font-medium text-sm" style={{ background: 'var(--parchment)', color: 'var(--wine)', border: '1px solid var(--border)' }}>
+        {!wine.is_wishlist && (
+          <button
+            onClick={() => setDrinkModalOpen(true)}
+            disabled={wine.quantity === 0}
+            className="px-5 py-2 rounded font-medium text-sm disabled:opacity-40"
+            style={{ background: 'var(--parchment)', color: 'var(--wine)', border: '1px solid var(--border)' }}
+          >
+            🍷 Drink
+          </button>
+        )}
+        <button onClick={enrich} disabled={enriching || saving} className="px-5 py-2 rounded font-medium text-sm" style={{ background: 'var(--parchment)', color: 'var(--wine)', border: '1px solid var(--border)' }}>
           {enriching ? 'Looking up…' : '✨ Enrich with AI'}
         </button>
         <button onClick={deleteWine} disabled={deleting} className="px-5 py-2 rounded font-medium text-sm ml-auto" style={{ background: '#fee2e2', color: '#991b1b' }}>
           {deleting ? 'Deleting…' : 'Delete'}
         </button>
       </div>
+
+      {drinkModalOpen && (
+        <DrinkModal
+          wine={wine}
+          onConfirm={handleDrink}
+          onCancel={() => setDrinkModalOpen(false)}
+        />
+      )}
+      {lastBottleModalOpen && (
+        <LastBottleModal
+          wineName={`${wine.vintage} ${wine.producer}${wine.name ? ' ' + wine.name : ''}`}
+          onAddToWishlist={() => handleLastBottle('wishlist')}
+          onKeepInCellar={() => handleLastBottle('keep')}
+          onRemove={() => handleLastBottle('remove')}
+        />
+      )}
     </div>
   )
 }

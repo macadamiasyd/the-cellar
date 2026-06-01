@@ -3,6 +3,38 @@ import Anthropic from '@anthropic-ai/sdk'
 
 const client = new Anthropic()
 
+const SYSTEM_PROMPT = `You are a wine database assistant providing SPECIFIC information about individual wines.
+
+CRITICAL RULES:
+- Only provide information you are confident applies to THIS EXACT wine and vintage.
+- If you are not sure about a specific detail for this vintage, return null for that field — do NOT fill it with generic information about the producer or grape variety.
+- Tasting notes must describe THIS wine specifically (e.g. from published reviews of this vintage), not generic varietal descriptions. If you don't have specific tasting notes for this vintage, return null.
+- Drink windows must reflect THIS vintage's ageing potential, not a generic range for the variety.
+- ABV must be for THIS vintage specifically. If uncertain, return null.
+- Scores must include the source (e.g. "96 — James Halliday" or "94 — Wine Advocate"). If you don't have a specific score, return null.
+- Food pairings can be more general (based on grape/style) as these are less vintage-specific.
+- Use the web_search tool to look up current reviews, scores, and tasting notes for the specific wine and vintage before responding.
+
+Return ONLY a JSON object as your final message. Use null for any field where you cannot provide specific-to-this-wine information:
+{
+  "grape": string|null,
+  "region": string|null,
+  "country": string|null,
+  "type": string|null,
+  "abv": number|null,
+  "drink_from": number|null,
+  "drink_by": number|null,
+  "tasting_notes": string|null,
+  "tasting_source": string|null,
+  "general_notes": string|null,
+  "food_pairings": string|null,
+  "score": string|null,
+  "confidence": "high"|"medium"|"low"
+}
+
+confidence: "high" = found specific review/data for this vintage; "medium" = strong knowledge of this wine but no specific review found; "low" = mostly inferred from producer/variety only.
+tasting_source: where the tasting note came from (e.g. "James Halliday, 2024 Wine Companion"), or null.`
+
 export async function POST(req: NextRequest) {
   const { producer, vintage, name } = await req.json()
 
@@ -12,26 +44,43 @@ export async function POST(req: NextRequest) {
 
   const wineDesc = [vintage, producer, name].filter(Boolean).join(' ')
 
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 800,
-    system: `You are a wine database assistant. Given the following wine details, provide accurate information to complete the wine's profile.
-Return ONLY a JSON object with these fields (use null for unknown):
-{ "grape": string|null, "region": string|null, "country": string|null, "type": string|null, "abv": number|null, "drink_from": number|null, "drink_by": number|null, "tasting_notes": string|null, "general_notes": string|null, "food_pairings": string|null, "score": string|null, "confidence": "high"|"medium"|"low" }
-Be specific and accurate. Use your knowledge of wine vintages, regions, and producers.
-For drink windows, provide realistic year ranges based on the wine style and vintage.
-For tasting notes, provide 2-3 sentences describing the wine's character.
-For food pairings, suggest 3-5 specific dishes or food categories.
-If you don't recognise the wine, return nulls and set confidence to "low".`,
-    messages: [{ role: 'user', content: wineDesc }],
-  })
+  const MAX_CONTINUATIONS = 5
+  let message: Anthropic.Message
+  try {
+    const messages: Anthropic.MessageParam[] = [{ role: 'user', content: wineDesc }]
+    let i = 0
+    do {
+      message = await client.messages.create({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2048,
+        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+        system: SYSTEM_PROMPT,
+        messages,
+      })
+      if (message.stop_reason === 'pause_turn') {
+        messages.push({ role: 'assistant', content: message.content })
+      }
+      i++
+    } while (message.stop_reason === 'pause_turn' && i < MAX_CONTINUATIONS)
+  } catch (err) {
+    console.error('AI lookup request failed:', err)
+    return NextResponse.json({ error: 'AI service unavailable. Please try again.' }, { status: 502 })
+  }
 
-  const text = message.content[0].type === 'text' ? message.content[0].text : ''
-  const jsonMatch = text.match(/\{[\s\S]*\}/)
-  if (!jsonMatch) return NextResponse.json({ error: 'Invalid AI response' }, { status: 500 })
+  // After tool use, the final JSON answer is in the last text block.
+  const textBlocks = message.content.filter(b => b.type === 'text')
+  const text = textBlocks.length ? (textBlocks[textBlocks.length - 1] as { text: string }).text : ''
+  const start = text.lastIndexOf('{')
+  const end = text.lastIndexOf('}')
+  if (start === -1 || end <= start) {
+    return NextResponse.json({ error: 'Invalid AI response' }, { status: 500 })
+  }
 
   try {
-    const result = JSON.parse(jsonMatch[0])
+    const result = JSON.parse(text.slice(start, end + 1))
+    if (!result || typeof result !== 'object' || !('confidence' in result)) {
+      return NextResponse.json({ error: 'Malformed AI response' }, { status: 500 })
+    }
     return NextResponse.json(result)
   } catch {
     return NextResponse.json({ error: 'Failed to parse AI response' }, { status: 500 })
