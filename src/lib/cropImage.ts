@@ -21,6 +21,10 @@ export async function getCroppedImage(
   canvas.width = Math.round(cropArea.width * scale)
   canvas.height = Math.round(cropArea.height * scale)
   const ctx = canvas.getContext('2d')!
+  // Fill white first so any area outside the source image (when the user zooms
+  // out to capture the whole label) renders as white rather than black.
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(
     image,
     cropArea.x, cropArea.y, cropArea.width, cropArea.height,
