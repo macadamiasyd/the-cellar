@@ -47,7 +47,9 @@ export default function ImageCropper({ imageSrc, originalFile, onCropped, onSkip
           image={imageSrc}
           crop={crop}
           zoom={zoom}
-          aspect={undefined}
+          aspect={3 / 4}
+          minZoom={0.4}
+          restrictPosition={false}
           onCropChange={setCrop}
           onZoomChange={setZoom}
           onCropComplete={onCropComplete}
@@ -60,7 +62,7 @@ export default function ImageCropper({ imageSrc, originalFile, onCropped, onSkip
       <div className="px-6 py-3" style={{ background: 'rgba(0,0,0,0.8)' }}>
         <input
           type="range"
-          min={1}
+          min={0.4}
           max={3}
           step={0.05}
           value={zoom}
